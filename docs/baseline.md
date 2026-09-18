@@ -17,7 +17,7 @@
 | Go | `go.mod` 声明 `go 1.26` |
 | 前端 | Next.js 16.1.1、React 19.2.3 |
 
-`upstream` URL 已核实，但当前执行环境拒绝修改 Git remote 配置；因此本次未在本地写入该 remote。同步前必须由获授权环境按 `upstream-sync.md` 配置并复核。
+`upstream` 已按明确授权配置为 `https://github.com/linux-do/credit.git`。本次仅新增 remote 配置，没有抓取、合并或推送；同步时仍必须按 `upstream-sync.md` 复核 URL 和差异。
 
 ## 原始证据
 
