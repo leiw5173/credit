@@ -10,7 +10,8 @@
 | `origin` | `https://github.com/leiw5173/credit.git` |
 | 约定 `upstream` | `https://github.com/linux-do/credit.git` |
 | 分支 | `master` |
-| 固定 SHA | `2d09c890e06e7c12906f1b641e8248646816590a` |
+| 上游源码基线 SHA | `2d09c890e06e7c12906f1b641e8248646816590a` |
+| 首次本地文档提交 | `7705ec22d18b7f7c4ad55592cce7c373089dcb7f`（后续修订以父仓库 gitlink 为准） |
 | LICENSE | Apache-2.0 |
 | LICENSE SHA-256 | `605edfddc7c4228f53ed2ffba4eb6585f3256d9a69beeffeb677add391721d14` |
 | Go | `go.mod` 声明 `go 1.26` |
@@ -60,9 +61,11 @@ docker version: 未运行；当前 PATH 无 docker
 
 ```bash
 git submodule update --init --recursive
+git rev-parse HEAD:credis
 git -C credis rev-parse HEAD
+git -C credis merge-base --is-ancestor 2d09c890e06e7c12906f1b641e8248646816590a HEAD
 sha256sum credis/LICENSE
 git -C credis status --short
 ```
 
-预期 SHA 为 `2d09c890e06e7c12906f1b641e8248646816590a`，工作树无改动（基线文档提交后）。
+两条 `rev-parse` 输出必须相同（父仓库 gitlink = submodule HEAD）。`2d09c890e06e7c12906f1b641e8248646816590a` 是上游源码基线，必须是当前 HEAD 的祖先，而不是文档提交后的 HEAD。远端 Fork 尚未提供父仓库指向的本地文档提交，全新克隆验证仍为 **BLOCKED**；本地已有对象的 `submodule update` 成功不能充当远端可复现证据。
