@@ -13,8 +13,9 @@ fork as a submodule; it must not silently follow the upstream default branch.
 | Parent submodule path | `credis/` |
 | Authorized fork (origin) | `https://github.com/leiw5173/credit.git` |
 | Intended upstream | `https://github.com/linux-do/credit` |
-| Fixed commit | `6083983e0b92f4f15bedd9a8ad714848ff07d82b` |
-| Fork and upstream `master` at verification | `6083983e0b92f4f15bedd9a8ad714848ff07d82b` |
+| Reviewed source baseline | `6083983e0b92f4f15bedd9a8ad714848ff07d82b` |
+| Parent gitlink | A later documentation-only fork commit; verify with `git submodule status` |
+| Fork and upstream `master` at source verification | `6083983e0b92f4f15bedd9a8ad714848ff07d82b` |
 | License SHA-256 | `f727e693aaf6c0181ea65fa75e233914b459fa8110bfacc72a7a6ad87380fda0` |
 
 `origin` is configured and points only to the authorized fork. Adding the
@@ -27,25 +28,27 @@ through the GitHub API.
 
 ## Re-evaluated drift from written design baseline
 
-The written design baseline is two commits behind this fixed source:
-`3c0ff2684ad3fde49634d769833f2c4e35b33334`.
+The written design baseline is two commits behind the reviewed source baseline:
+`2d09c890e06e7c12906f1b641e8248646816590a`.
 
 ```text
-$ git diff --name-status 3c0ff2684ad3fde49634d769833f2c4e35b33334..6083983e0b92f4f15bedd9a8ad714848ff07d82b
+$ git diff --name-status 2d09c890e06e7c12906f1b641e8248646816590a..6083983e0b92f4f15bedd9a8ad714848ff07d82b
 M       internal/apps/redenvelope/routers.go
 M       internal/apps/redenvelope/utils.go
 A       internal/apps/redenvelope/utils_test.go
 
-$ git diff --stat 3c0ff2684ad3fde49634d769833f2c4e35b33334..6083983e0b92f4f15bedd9a8ad714848ff07d82b
- internal/apps/redenvelope/routers.go    |  4 ++--
+$ git diff --stat 2d09c890e06e7c12906f1b641e8248646816590a..6083983e0b92f4f15bedd9a8ad714848ff07d82b
+ internal/apps/redenvelope/routers.go    |  2 +-
  internal/apps/redenvelope/utils.go      |  5 +++++
  internal/apps/redenvelope/utils_test.go | 32 ++++++++++++++++++++++++++++++++
- 3 files changed, 39 insertions(+), 2 deletions(-)
+ 3 files changed, 38 insertions(+), 1 deletion(-)
+
+$ git diff --check 2d09c890e06e7c12906f1b641e8248646816590a..6083983e0b92f4f15bedd9a8ad714848ff07d82b
+[exit 0; no output]
 ```
 
 The two commits are `10c6643` (`fix(redenvelope): use local midnight for
-daily limit`) and merge commit `6083983`. `git diff --check` reports no
-whitespace errors in this range. The drift is limited to internal
+daily limit`) and merge commit `6083983`. The drift is limited to internal
 red-envelope daily-window handling and its test; it is documented before this
 baseline lock and is not absorbed as an unreviewed P0 change.
 
@@ -61,6 +64,9 @@ $ git -C credis branch -r
   origin/HEAD -> origin/master
   origin/feat/credis-p0
   origin/master
+
+$ git -C credis status --short
+[exit 0; no output, clean]
 
 $ sha256sum credis/LICENSE
 zsh: command not found: sha256sum
@@ -79,6 +85,9 @@ v26.4.0
 
 $ pnpm --version
 10.33.1
+
+$ node -p "require('./frontend/package.json').dependencies.next + ' / ' + require('./frontend/package.json').dependencies.react + ' / ' + require('./frontend/package.json').dependencies['react-dom']"
+16.1.1 / 19.2.3 / 19.2.3
 ```
 
 `go.mod` declares `go 1.26`; host Go 1.27.1 is recorded as a version mismatch,
@@ -109,14 +118,33 @@ Done in 26s using pnpm v10.33.1
 > eslint
 ```
 
-The production build then failed because the environment could not retrieve a
-Google-hosted font, not because of a lint or source error:
+The first production-build attempt failed because the environment could not
+retrieve a Google-hosted font:
 
 ```text
 next/font: error:
 Failed to fetch `Geist Mono` from Google Fonts.
 ELIFECYCLE Command failed with exit code 1.
 ```
+
+A covering rerun on 2026-09-22 passed lint and the production build with the
+same installed dependencies:
+
+```text
+$ (cd credis/frontend && pnpm lint && pnpm build)
+> linux-do-credit@1.3.9 lint
+> eslint
+
+> linux-do-credit@1.3.9 build
+> next build
+▲ Next.js 16.1.1 (Turbopack)
+✓ Compiled successfully
+✓ Generating static pages using 9 workers (27/27)
+[exit 0]
+```
+
+The initial network failure remains part of the baseline evidence; the later
+successful build is the current covering result.
 
 Docker CLI 29.8.0, Docker Compose v5.5.1, and the Docker daemon 29.8.0 are
 available. API, worker, and scheduler runtime checks are **not passed**:
@@ -128,16 +156,23 @@ fresh local-only images had already been digest-resolved:
 - PostgreSQL 18.6: `postgres@sha256:3725f4e2499eef5134592b3b4ab79a543ed7f8e533b05b5b637af926630f6650`
 - Redis 7.4.11: `redis@sha256:c6eabf748fc7a61dbb5a705c78bcf3d6377b1127a97d0ce965c11c44ba46896f`
 
-## Reproduction
+## Reproduction status
+
+The reviewed application source is `6083983…`; the parent gitlink intentionally
+points to a later documentation-only fork commit. A fresh clone can reproduce
+that gitlink only after the matching fork documentation branch is available at
+the configured authorized `origin`. Until an authorized publication occurs,
+`git submodule update --init --recursive` in a fresh clone is expected to fail
+for that local-only documentation object; it is not a reproducibility pass.
+
+After the fork commit is available, verify both the actual gitlink and reviewed
+source baseline separately:
 
 ```bash
 git submodule update --init --recursive
-test "$(git config -f .gitmodules submodule.credis.url)" = \
-  "https://github.com/leiw5173/credit.git"
+git submodule status
 git -C credis rev-parse HEAD
-# Expected fixed source: 6083983e0b92f4f15bedd9a8ad714848ff07d82b
+git -C credis rev-parse origin/master
+# The gitlink is the published documentation commit; origin/master remains the
+# reviewed application source baseline 6083983e0b92f4f15bedd9a8ad714848ff07d82b.
 ```
-
-Before treating this baseline as fully verified, an authorized local operator
-must add the configured upstream remote and run the runtime checks against
-fresh local PostgreSQL/Redis instances.
