@@ -130,6 +130,9 @@ func enqueueBatchScoreTask(ctx context.Context, userScores []model.LeaderboardUs
 
 // batchUpdateUserScores 批量更新用户积分
 func batchUpdateUserScores(ctx context.Context, userScores []model.LeaderboardUser) error {
+	if !config.Config.Features.LegacyGamificationImport {
+		return errors.New("legacy gamification import is disabled")
+	}
 	if len(userScores) == 0 {
 		return nil
 	}

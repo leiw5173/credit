@@ -53,68 +53,65 @@ func StartScheduler() error {
 			},
 		)
 
-		// 用户积分更新任务
-		if _, err = scheduler.Register(
-			config.Config.Scheduler.UpdateUserGamificationScoresTaskCron,
-			asynq.NewTask(task.UpdateUserGamificationScoresTask, nil),
-			asynq.Queue(task.QueueWhitelistOnly),
-			asynq.MaxRetry(5),
-			asynq.Unique(23*time.Hour),
-		); err != nil {
+		if err = registerSchedules(scheduler, config.Config.Features); err != nil {
 			return
 		}
 
-		// 争议自动退款任务
-		if _, err = scheduler.Register(
-			config.Config.Scheduler.AutoRefundExpiredDisputesTaskCron,
-			asynq.NewTask(task.AutoRefundExpiredDisputesTask, nil),
-			asynq.MaxRetry(5),
-			asynq.Unique(23*time.Hour),
-		); err != nil {
-			return
-		}
-
-		// 订单同步任务
-		if _, err = scheduler.Register(
-			config.Config.Scheduler.SyncOrdersToClickHouseTaskCron,
-			asynq.NewTask(task.SyncOrdersToClickHouseTask, nil),
-			asynq.MaxRetry(10),
-			asynq.Unique(23*time.Hour),
-		); err != nil {
-			return
-		}
-
-		// 红包过期退款任务
-		if _, err = scheduler.Register(
-			config.Config.Scheduler.RefundExpiredRedEnvelopesTaskCron,
-			asynq.NewTask(task.RefundExpiredRedEnvelopesTask, nil),
-			asynq.Unique(23*time.Hour),
-		); err != nil {
-			return
-		}
-
-		// 清理未使用的上传文件任务
-		if _, err = scheduler.Register(
-			config.Config.Scheduler.CleanupUnusedUploadsTaskCron,
-			asynq.NewTask(task.CleanupUnusedUploadsTask, nil),
-			asynq.Unique(23*time.Hour),
-			asynq.MaxRetry(3),
-		); err != nil {
-			return
-		}
-
-		// 延迟到账结算任务
-		if _, err = scheduler.Register(
-			config.Config.Scheduler.SettlePendingPaymentsTaskCron,
-			asynq.NewTask(task.SettlePendingPaymentsTask, nil),
-			asynq.Unique(55*time.Minute),
-			asynq.MaxRetry(3),
-		); err != nil {
-			return
-		}
-
-		// 启动调度器
 		err = scheduler.Run()
 	})
 	return err
+}
+
+type scheduleDefinition struct {
+	cron     string
+	taskType string
+	queue    string
+	maxRetry int
+	unique   time.Duration
+}
+
+// ScheduledTaskTypes reports the task types that StartScheduler will register.
+func ScheduledTaskTypes(flags config.Features) []string {
+	definitions := scheduleDefinitions(flags)
+	taskTypes := make([]string, 0, len(definitions))
+	for _, definition := range definitions {
+		taskTypes = append(taskTypes, definition.taskType)
+	}
+	return taskTypes
+}
+
+func registerSchedules(s *asynq.Scheduler, flags config.Features) error {
+	for _, definition := range scheduleDefinitions(flags) {
+		options := []asynq.Option{asynq.Unique(definition.unique)}
+		if definition.maxRetry > 0 {
+			options = append(options, asynq.MaxRetry(definition.maxRetry))
+		}
+		if definition.queue != "" {
+			options = append(options, asynq.Queue(definition.queue))
+		}
+		if _, err := s.Register(definition.cron, asynq.NewTask(definition.taskType, nil), options...); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func scheduleDefinitions(flags config.Features) []scheduleDefinition {
+	definitions := []scheduleDefinition{
+		{config.Config.Scheduler.CleanupUnusedUploadsTaskCron, task.CleanupUnusedUploadsTask, "", 3, 23 * time.Hour},
+	}
+	if flags.LegacyGamificationImport {
+		definitions = append(definitions,
+			scheduleDefinition{config.Config.Scheduler.UpdateUserGamificationScoresTaskCron, task.UpdateUserGamificationScoresTask, task.QueueWhitelistOnly, 5, 23 * time.Hour},
+		)
+	}
+	if flags.LegacyCommerce {
+		definitions = append(definitions,
+			scheduleDefinition{config.Config.Scheduler.AutoRefundExpiredDisputesTaskCron, task.AutoRefundExpiredDisputesTask, "", 5, 23 * time.Hour},
+			scheduleDefinition{config.Config.Scheduler.SyncOrdersToClickHouseTaskCron, task.SyncOrdersToClickHouseTask, "", 10, 23 * time.Hour},
+			scheduleDefinition{config.Config.Scheduler.RefundExpiredRedEnvelopesTaskCron, task.RefundExpiredRedEnvelopesTask, "", 0, 23 * time.Hour},
+			scheduleDefinition{config.Config.Scheduler.SettlePendingPaymentsTaskCron, task.SettlePendingPaymentsTask, "", 3, 55 * time.Minute},
+		)
+	}
+	return definitions
 }

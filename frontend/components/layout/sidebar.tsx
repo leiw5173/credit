@@ -100,7 +100,10 @@ const data = {
  * ```
  * @returns {React.ReactNode} 应用侧边栏组件
  */
-export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
+export function AppSidebar({
+  legacyCommerceEnabled,
+  ...props
+}: React.ComponentProps<typeof Sidebar> & { legacyCommerceEnabled: boolean }) {
   const { toggleSidebar, state, isMobile, setOpenMobile } = useSidebar()
   const { user, getTrustLevelLabel, logout } = useUser()
   const [showLogoutDialog, setShowLogoutDialog] = React.useState(false)
@@ -273,7 +276,9 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
           <SidebarGroup className="py-0">
             <SidebarGroupContent className="py-1">
               <SidebarMenu className="gap-1">
-                {data.navMain.map((item) => (
+                {data.navMain
+                  .filter((item) => legacyCommerceEnabled || (item.url !== "/merchant" && item.url !== "/trade"))
+                  .map((item) => (
                   <SidebarMenuItem key={item.title}>
                     <SidebarMenuButton
                       tooltip={item.title}
@@ -341,28 +346,30 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
             </SidebarGroupContent>
           </SidebarGroup>
 
-          <SidebarGroup className="py-0 pt-4">
-            <SidebarGroupLabel className="text-xs font-normal text-muted-foreground">
-              服务
-            </SidebarGroupLabel>
-            <SidebarGroupContent className="py-1">
-              <SidebarMenu className="gap-1">
-                {data.products.map((item) => (
-                  <SidebarMenuItem key={item.title}>
-                    <SidebarMenuButton
-                      tooltip={item.title}
-                      asChild
-                    >
-                      <Link href={item.url} onClick={handleCloseSidebar}>
-                        {item.icon && <item.icon />}
-                        <span>{item.title}</span>
-                      </Link>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                ))}
-              </SidebarMenu>
-            </SidebarGroupContent>
-          </SidebarGroup>
+          {legacyCommerceEnabled && (
+            <SidebarGroup className="py-0 pt-4">
+              <SidebarGroupLabel className="text-xs font-normal text-muted-foreground">
+                服务
+              </SidebarGroupLabel>
+              <SidebarGroupContent className="py-1">
+                <SidebarMenu className="gap-1">
+                  {data.products.map((item) => (
+                    <SidebarMenuItem key={item.title}>
+                      <SidebarMenuButton
+                        tooltip={item.title}
+                        asChild
+                      >
+                        <Link href={item.url} onClick={handleCloseSidebar}>
+                          {item.icon && <item.icon />}
+                          <span>{item.title}</span>
+                        </Link>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  ))}
+                </SidebarMenu>
+              </SidebarGroupContent>
+            </SidebarGroup>
+          )}
         </SidebarContent>
         <SidebarFooter className="mt-auto px-3 py-3 group-data-[collapsible=icon]:hidden">
           <div className="border-t border-border/60 pt-3 text-[11px] leading-5 text-muted-foreground">

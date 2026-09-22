@@ -24,6 +24,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/hibiken/asynq"
+	"github.com/linux-do/credit/internal/config"
 	"github.com/linux-do/credit/internal/task"
 	"github.com/linux-do/credit/internal/task/scheduler"
 	"github.com/linux-do/credit/internal/util"
@@ -35,7 +36,7 @@ import (
 // @Success 200 {object} util.ResponseAny
 // @Router /api/v1/admin/tasks/types [get]
 func ListTaskTypes(c *gin.Context) {
-	c.JSON(http.StatusOK, util.OK(task.DispatchableTasks))
+	c.JSON(http.StatusOK, util.OK(task.DispatchableTasksForFeatures(config.Config.Features)))
 }
 
 // DispatchTaskRequest 下发任务请求
@@ -60,7 +61,7 @@ func DispatchTask(c *gin.Context) {
 		return
 	}
 
-	meta := task.GetTaskMeta(req.TaskType)
+	meta := task.GetTaskMetaForFeatures(config.Config.Features, req.TaskType)
 	if meta == nil {
 		c.JSON(http.StatusBadRequest, util.Err(InvalidTaskType))
 		return

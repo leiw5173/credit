@@ -1,6 +1,12 @@
 # LINUX DO Credit Config
 # Copy to config.yaml for runtime
 
+# Feature gates: keep legacy paths disabled for P0 rollout.
+features:
+  p0: false
+  legacy_commerce: false
+  legacy_gamification_import: false
+
 # App
 app:
   app_name: "linux-do-credit"

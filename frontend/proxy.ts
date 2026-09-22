@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
+import { legacyCommerceEnabled } from '@/lib/feature-flags'
 
 /**
  * Next.js 16 代理层
@@ -79,8 +80,20 @@ if (typeof setInterval !== 'undefined') {
 
 /* ==================== 代理主函数 ==================== */
 
-export function proxy(request: NextRequest) {
+function isLegacyCommercePage(pathname: string): boolean {
+  return pathname === '/trade' ||
+    pathname === '/merchant' ||
+    pathname.startsWith('/merchant/') ||
+    pathname === '/paying' ||
+    pathname.startsWith('/paying/') ||
+    pathname.startsWith('/redenvelope/')
+}
+
+export async function proxy(request: NextRequest) {
   const { pathname, search } = request.nextUrl
+  if (!await legacyCommerceEnabled() && isLegacyCommercePage(pathname)) {
+    return new NextResponse(null, { status: 404 })
+  }
   const sessionCookieName = process.env.LINUX_DO_CREDIT_SESSION_COOKIE_NAME || 'linux_do_credit_session_id'
   const sessionCookie = request.cookies.get(sessionCookieName)
 

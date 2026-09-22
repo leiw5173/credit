@@ -105,182 +105,7 @@ func Serve() {
 	// 补充中间件
 	r.Use(otelgin.Middleware(config.Config.App.AppName), loggerMiddleware())
 
-	// 支付接口
-	r.Match([]string{"GET", "POST"}, "/pay/submit.php", payment.RequireSignatureAuth(), payment.CreateMerchantOrder)
-	// 查询订单
-	r.GET("/api.php", payment.QueryMerchantOrder)
-	// 退款接口
-	r.POST("/api.php", payment.RefundMerchantOrder)
-	// 商户分发接口
-	r.POST("/pay/distribute", payment.RequireMerchantAuth(), payment.MerchantDistribute)
-
-	// Serve files by ID
-	r.GET("/f/:id", upload.ServeFileByID)
-
-	apiGroup := r.Group(config.Config.App.APIPrefix)
-	apiGroup.Use(csrfMiddleware())
-	{
-		if !config.Config.App.IsProduction() {
-			// Swagger
-			apiGroup.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
-		}
-
-		// API V1
-		apiV1Router := apiGroup.Group("/v1")
-		{
-			// Health
-			apiV1Router.GET("/health", health.Health)
-			apiV1Router.GET("/ready", health.Ready)
-
-			// OAuth
-			apiV1Router.GET("/oauth/login", oauth.GetLoginURL)
-			apiV1Router.GET("/oauth/logout", oauth.Logout)
-			apiV1Router.POST("/oauth/callback", oauth.Callback)
-			apiV1Router.GET("/oauth/user-info", oauth.LoginRequired(), oauth.UserInfo)
-
-			// User
-			userRouter := apiV1Router.Group("/user")
-			userRouter.Use(oauth.LoginRequired())
-			{
-				userRouter.PUT("/pay-key", user.UpdatePayKey)
-			}
-
-			// Dashboard
-			dashboardRouter := apiV1Router.Group("/dashboard")
-			dashboardRouter.Use(oauth.LoginRequired())
-			{
-				dashboardRouter.GET("/stats/daily", dashboard.GetDailyStats)
-				dashboardRouter.GET("/stats/top-customers", dashboard.GetTopCustomers)
-			}
-
-			apiV1Router.GET("/dashboard/stats/user-balance", dashboard.GetUserBalanceStats)
-
-			// Leaderboard
-			leaderboardRouter := apiV1Router.Group("/leaderboard")
-			leaderboardRouter.Use(oauth.LoginRequired())
-			{
-				leaderboardRouter.GET("", leaderboard.List)
-				leaderboardRouter.GET("/me", leaderboard.GetMyRank)
-				leaderboardRouter.GET("/users/:id", leaderboard.GetUserRankByID)
-			}
-
-			// Order
-			orderRouter := apiV1Router.Group("/order")
-			orderRouter.Use(oauth.LoginRequired())
-			{
-				orderRouter.POST("/transactions", order.ListTransactions)
-				orderRouter.POST("/dispute", dispute.CreateDispute)
-				orderRouter.POST("/disputes/merchant", dispute.ListMerchantDisputes)
-				orderRouter.POST("/disputes", dispute.ListDisputes)
-				orderRouter.POST("/refund-review", dispute.RefundReview)
-				orderRouter.POST("/dispute/close", dispute.CloseDispute)
-			}
-
-			// Payment
-			paymentRouter := apiV1Router.Group("/payment")
-			paymentRouter.Use(oauth.LoginRequired())
-			{
-				paymentRouter.POST("/transfer", payment.Transfer)
-			}
-
-			// Red Envelope
-			redEnvelopeRouter := apiV1Router.Group("/redenvelope")
-			{
-				redEnvelopeRouter.GET("/covers", oauth.LoginRequired(), upload.ListRedEnvelopeCovers)
-				redEnvelopeRouter.GET("/:id", oauth.LoginRequired(), redenvelope.CheckRedEnvelopeEnabled(), redenvelope.GetDetail)
-				redEnvelopeRouter.POST("/create", oauth.LoginRequired(), redenvelope.CheckRedEnvelopeEnabled(), redenvelope.Create)
-				redEnvelopeRouter.POST("/claim", oauth.LoginRequired(), redenvelope.CheckRedEnvelopeEnabled(), redenvelope.Claim)
-				redEnvelopeRouter.POST("/list", oauth.LoginRequired(), redenvelope.CheckRedEnvelopeEnabled(), redenvelope.List)
-			}
-
-			// Upload
-			uploadRouter := apiV1Router.Group("/upload")
-			uploadRouter.Use(oauth.LoginRequired())
-			{
-				uploadRouter.POST("/redenvelope/cover", upload.UploadRedEnvelopeCover)
-			}
-
-			// Config (public)
-			configRouter := apiV1Router.Group("/config")
-			{
-				configRouter.GET("/public", publicconfig.GetPublicConfig)
-				configRouter.GET("/user-pay", user_pay_config.ListUserPayConfigs)
-			}
-
-			// MerchantAPIKey
-			merchantRouter := apiV1Router.Group("/merchant")
-			{
-				merchantRouter.POST("/api-keys", oauth.LoginRequired(), api_key.CreateAPIKey)
-				merchantRouter.GET("/api-keys", oauth.LoginRequired(), api_key.ListAPIKeys)
-
-				apiKeyRouter := merchantRouter.Group("/api-keys/:id")
-				apiKeyRouter.Use(oauth.LoginRequired(), api_key.RequireAPIKey())
-				{
-					apiKeyRouter.GET("", api_key.GetAPIKey)
-					apiKeyRouter.PUT("", api_key.UpdateAPIKey)
-					apiKeyRouter.DELETE("", api_key.DeleteAPIKey)
-
-					// Payment Links
-					linkRouter := apiKeyRouter.Group("/payment-links")
-					{
-						linkRouter.GET("", link.ListPaymentLinks)
-						linkRouter.POST("", link.CreatePaymentLink)
-						linkRouter.PUT("/:linkId", link.UpdatePaymentLink)
-						linkRouter.DELETE("/:linkId", link.DeletePaymentLink)
-					}
-				}
-
-				merchantRouter.GET("/payment-links/:token", oauth.LoginRequired(), link.GetPaymentLinkByToken)
-				merchantRouter.POST("/payment-links/pay", oauth.LoginRequired(), link.PayByLink)
-
-				// MerchantAPIKey Payment
-				MerchantPaymentRouter := merchantRouter.Group("/payment")
-				{
-					MerchantPaymentRouter.GET("/order", oauth.LoginRequired(), payment.GetPaymentPageDetails)
-					MerchantPaymentRouter.POST("", oauth.LoginRequired(), payment.PayMerchantOrder)
-				}
-			}
-
-			// Admin
-			adminRouter := apiV1Router.Group("/admin")
-			adminRouter.Use(oauth.LoginRequired(), admin.LoginAdminRequired())
-			{
-				// Task dispatch
-				adminRouter.GET("/tasks/types", admin_task.ListTaskTypes)
-				adminRouter.POST("/tasks/dispatch", admin_task.DispatchTask)
-
-				// Users
-				adminRouter.GET("/users", admin_user.ListUsers)
-				adminRouter.PUT("/users/:id/status", admin_user.UpdateUserStatus)
-
-				// Orders
-				adminRouter.POST("/orders", admin_order.ListOrders)
-				adminRouter.POST("/orders/:id/refund", admin_order.RefundOrder)
-
-				// System Config
-				adminRouter.POST("/system-configs", system_config.CreateSystemConfig)
-				adminRouter.GET("/system-configs", system_config.ListSystemConfigs)
-
-				systemConfigRouter := adminRouter.Group("/system-configs/:key")
-				{
-					systemConfigRouter.GET("", system_config.GetSystemConfig)
-					systemConfigRouter.PUT("", system_config.UpdateSystemConfig)
-					systemConfigRouter.DELETE("", system_config.DeleteSystemConfig)
-				}
-
-				// User Credit Config
-				adminRouter.POST("/user-pay-configs", user_pay_config.CreateUserPayConfig)
-				adminRouter.GET("/user-pay-configs", user_pay_config.ListUserPayConfigs)
-
-				userPayConfigRouter := adminRouter.Group("/user-pay-configs/:id")
-				{
-					userPayConfigRouter.GET("", user_pay_config.GetUserPayConfig)
-					userPayConfigRouter.PUT("", user_pay_config.UpdateUserPayConfig)
-					userPayConfigRouter.DELETE("", user_pay_config.DeleteUserPayConfig)
-				}
-			}
-		}
-	}
+	registerRoutes(r, config.Config.Features)
 
 	expireListenerCtx, expireListenerCancel := context.WithCancel(context.Background())
 
@@ -315,4 +140,197 @@ func Serve() {
 	}
 
 	log.Println("[API] server exited")
+}
+
+func registerRoutes(r *gin.Engine, flags config.Features) {
+	if flags.LegacyCommerce {
+		// 支付接口
+		r.Match([]string{"GET", "POST"}, "/pay/submit.php", payment.RequireSignatureAuth(), payment.CreateMerchantOrder)
+		// 查询订单
+		r.GET("/api.php", payment.QueryMerchantOrder)
+		// 退款接口
+		r.POST("/api.php", payment.RefundMerchantOrder)
+		// 商户分发接口
+		r.POST("/pay/distribute", payment.RequireMerchantAuth(), payment.MerchantDistribute)
+	}
+
+	// Serve files by ID
+	r.GET("/f/:id", upload.ServeFileByID)
+
+	apiGroup := r.Group(config.Config.App.APIPrefix)
+	apiGroup.Use(csrfMiddleware())
+	{
+		if !config.Config.App.IsProduction() {
+			// Swagger
+			apiGroup.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
+		}
+
+		// API V1
+		apiV1Router := apiGroup.Group("/v1")
+		{
+			// Health
+			apiV1Router.GET("/health", health.Health)
+			apiV1Router.GET("/ready", health.Ready)
+
+			// OAuth
+			apiV1Router.GET("/oauth/login", oauth.GetLoginURL)
+			apiV1Router.GET("/oauth/logout", oauth.Logout)
+			apiV1Router.POST("/oauth/callback", oauth.Callback)
+			apiV1Router.GET("/oauth/user-info", oauth.LoginRequired(), oauth.UserInfo)
+
+			if flags.LegacyCommerce {
+				// User
+				userRouter := apiV1Router.Group("/user")
+				userRouter.Use(oauth.LoginRequired())
+				{
+					userRouter.PUT("/pay-key", user.UpdatePayKey)
+				}
+			}
+
+			// Dashboard
+			dashboardRouter := apiV1Router.Group("/dashboard")
+			dashboardRouter.Use(oauth.LoginRequired())
+			{
+				dashboardRouter.GET("/stats/daily", dashboard.GetDailyStats)
+				dashboardRouter.GET("/stats/top-customers", dashboard.GetTopCustomers)
+			}
+
+			apiV1Router.GET("/dashboard/stats/user-balance", dashboard.GetUserBalanceStats)
+
+			// Leaderboard
+			leaderboardRouter := apiV1Router.Group("/leaderboard")
+			leaderboardRouter.Use(oauth.LoginRequired())
+			{
+				leaderboardRouter.GET("", leaderboard.List)
+				leaderboardRouter.GET("/me", leaderboard.GetMyRank)
+				leaderboardRouter.GET("/users/:id", leaderboard.GetUserRankByID)
+			}
+
+			if flags.LegacyCommerce {
+				// Order
+				orderRouter := apiV1Router.Group("/order")
+				orderRouter.Use(oauth.LoginRequired())
+				{
+					orderRouter.POST("/transactions", order.ListTransactions)
+					orderRouter.POST("/dispute", dispute.CreateDispute)
+					orderRouter.POST("/disputes/merchant", dispute.ListMerchantDisputes)
+					orderRouter.POST("/disputes", dispute.ListDisputes)
+					orderRouter.POST("/refund-review", dispute.RefundReview)
+					orderRouter.POST("/dispute/close", dispute.CloseDispute)
+				}
+
+				// Payment
+				paymentRouter := apiV1Router.Group("/payment")
+				paymentRouter.Use(oauth.LoginRequired())
+				{
+					paymentRouter.POST("/transfer", payment.Transfer)
+				}
+
+				// Red Envelope
+				redEnvelopeRouter := apiV1Router.Group("/redenvelope")
+				{
+					redEnvelopeRouter.GET("/covers", oauth.LoginRequired(), upload.ListRedEnvelopeCovers)
+					redEnvelopeRouter.GET("/:id", oauth.LoginRequired(), redenvelope.CheckRedEnvelopeEnabled(), redenvelope.GetDetail)
+					redEnvelopeRouter.POST("/create", oauth.LoginRequired(), redenvelope.CheckRedEnvelopeEnabled(), redenvelope.Create)
+					redEnvelopeRouter.POST("/claim", oauth.LoginRequired(), redenvelope.CheckRedEnvelopeEnabled(), redenvelope.Claim)
+					redEnvelopeRouter.POST("/list", oauth.LoginRequired(), redenvelope.CheckRedEnvelopeEnabled(), redenvelope.List)
+				}
+			}
+
+			// Upload
+			uploadRouter := apiV1Router.Group("/upload")
+			uploadRouter.Use(oauth.LoginRequired())
+			{
+				uploadRouter.POST("/redenvelope/cover", upload.UploadRedEnvelopeCover)
+			}
+
+			// Config (public)
+			configRouter := apiV1Router.Group("/config")
+			{
+				configRouter.GET("/public", publicconfig.GetPublicConfig)
+				if flags.LegacyCommerce {
+					configRouter.GET("/user-pay", user_pay_config.ListUserPayConfigs)
+				}
+			}
+
+			if flags.LegacyCommerce {
+				// MerchantAPIKey
+				merchantRouter := apiV1Router.Group("/merchant")
+				{
+					merchantRouter.POST("/api-keys", oauth.LoginRequired(), api_key.CreateAPIKey)
+					merchantRouter.GET("/api-keys", oauth.LoginRequired(), api_key.ListAPIKeys)
+
+					apiKeyRouter := merchantRouter.Group("/api-keys/:id")
+					apiKeyRouter.Use(oauth.LoginRequired(), api_key.RequireAPIKey())
+					{
+						apiKeyRouter.GET("", api_key.GetAPIKey)
+						apiKeyRouter.PUT("", api_key.UpdateAPIKey)
+						apiKeyRouter.DELETE("", api_key.DeleteAPIKey)
+
+						// Payment Links
+						linkRouter := apiKeyRouter.Group("/payment-links")
+						{
+							linkRouter.GET("", link.ListPaymentLinks)
+							linkRouter.POST("", link.CreatePaymentLink)
+							linkRouter.PUT("/:linkId", link.UpdatePaymentLink)
+							linkRouter.DELETE("/:linkId", link.DeletePaymentLink)
+						}
+					}
+
+					merchantRouter.GET("/payment-links/:token", oauth.LoginRequired(), link.GetPaymentLinkByToken)
+					merchantRouter.POST("/payment-links/pay", oauth.LoginRequired(), link.PayByLink)
+
+					// MerchantAPIKey Payment
+					MerchantPaymentRouter := merchantRouter.Group("/payment")
+					{
+						MerchantPaymentRouter.GET("/order", oauth.LoginRequired(), payment.GetPaymentPageDetails)
+						MerchantPaymentRouter.POST("", oauth.LoginRequired(), payment.PayMerchantOrder)
+					}
+				}
+			}
+
+			// Admin
+			adminRouter := apiV1Router.Group("/admin")
+			adminRouter.Use(oauth.LoginRequired(), admin.LoginAdminRequired())
+			{
+				// Task dispatch
+				adminRouter.GET("/tasks/types", admin_task.ListTaskTypes)
+				adminRouter.POST("/tasks/dispatch", admin_task.DispatchTask)
+
+				// Users
+				adminRouter.GET("/users", admin_user.ListUsers)
+				adminRouter.PUT("/users/:id/status", admin_user.UpdateUserStatus)
+
+				if flags.LegacyCommerce {
+					// Orders
+					adminRouter.POST("/orders", admin_order.ListOrders)
+					adminRouter.POST("/orders/:id/refund", admin_order.RefundOrder)
+				}
+
+				// System Config
+				adminRouter.POST("/system-configs", system_config.CreateSystemConfig)
+				adminRouter.GET("/system-configs", system_config.ListSystemConfigs)
+
+				systemConfigRouter := adminRouter.Group("/system-configs/:key")
+				{
+					systemConfigRouter.GET("", system_config.GetSystemConfig)
+					systemConfigRouter.PUT("", system_config.UpdateSystemConfig)
+					systemConfigRouter.DELETE("", system_config.DeleteSystemConfig)
+				}
+
+				if flags.LegacyCommerce {
+					// User Credit Config
+					adminRouter.POST("/user-pay-configs", user_pay_config.CreateUserPayConfig)
+					adminRouter.GET("/user-pay-configs", user_pay_config.ListUserPayConfigs)
+
+					userPayConfigRouter := adminRouter.Group("/user-pay-configs/:id")
+					{
+						userPayConfigRouter.GET("", user_pay_config.GetUserPayConfig)
+						userPayConfigRouter.PUT("", user_pay_config.UpdateUserPayConfig)
+						userPayConfigRouter.DELETE("", user_pay_config.DeleteUserPayConfig)
+					}
+				}
+			}
+		}
+	}
 }

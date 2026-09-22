@@ -17,6 +17,7 @@ limitations under the License.
 package worker
 
 import (
+	"context"
 	"log"
 	"math/rand"
 	"strings"
@@ -71,17 +72,7 @@ func StartWorker() error {
 	)
 
 	// 注册任务处理器
-	mux := asynq.NewServeMux()
-	mux.Use(taskLoggingMiddleware)
-	mux.HandleFunc(task.UpdateUserGamificationScoresTask, user.HandleUpdateUserGamificationScores)
-	mux.HandleFunc(task.UpdateSingleUserGamificationScoreTask, user.HandleUpdateSingleUserGamificationScore)
-	mux.HandleFunc(task.AutoRefundExpiredDisputesTask, dispute.HandleAutoRefundExpiredDisputes)
-	mux.HandleFunc(task.AutoRefundSingleDisputeTask, dispute.HandleAutoRefundSingleDispute)
-	mux.HandleFunc(task.MerchantPaymentNotifyTask, payment.HandleMerchantPaymentNotify)
-	mux.HandleFunc(task.SyncOrdersToClickHouseTask, order.HandleSyncOrdersToClickHouse)
-	mux.HandleFunc(task.RefundExpiredRedEnvelopesTask, redenvelope.HandleRefundExpiredRedEnvelopes)
-	mux.HandleFunc(task.CleanupUnusedUploadsTask, upload.HandleCleanupUnusedUploads)
-	mux.HandleFunc(task.SettlePendingPaymentsTask, order.HandleSettlePendingPayments)
+	mux := NewServeMux(config.Config.Features)
 
 	// 启动服务器
 	return asynqServer.Run(mux)
@@ -110,4 +101,42 @@ func buildQueuesFromConfig() map[string]int {
 	}
 
 	return queues
+}
+
+// NewServeMux builds the worker's task multiplexer for the selected feature set.
+func NewServeMux(flags config.Features) *asynq.ServeMux {
+	mux := asynq.NewServeMux()
+	mux.Use(taskLoggingMiddleware)
+	for _, registration := range workerTaskRegistrations(flags) {
+		mux.HandleFunc(registration.taskType, registration.handler)
+	}
+	return mux
+}
+
+type workerTaskRegistration struct {
+	taskType string
+	handler  func(context.Context, *asynq.Task) error
+}
+
+func workerTaskRegistrations(flags config.Features) []workerTaskRegistration {
+	registrations := []workerTaskRegistration{
+		{task.CleanupUnusedUploadsTask, upload.HandleCleanupUnusedUploads},
+	}
+	if flags.LegacyGamificationImport {
+		registrations = append(registrations,
+			workerTaskRegistration{task.UpdateUserGamificationScoresTask, user.HandleUpdateUserGamificationScores},
+			workerTaskRegistration{task.UpdateSingleUserGamificationScoreTask, user.HandleUpdateSingleUserGamificationScore},
+		)
+	}
+	if flags.LegacyCommerce {
+		registrations = append(registrations,
+			workerTaskRegistration{task.AutoRefundExpiredDisputesTask, dispute.HandleAutoRefundExpiredDisputes},
+			workerTaskRegistration{task.AutoRefundSingleDisputeTask, dispute.HandleAutoRefundSingleDispute},
+			workerTaskRegistration{task.MerchantPaymentNotifyTask, payment.HandleMerchantPaymentNotify},
+			workerTaskRegistration{task.SyncOrdersToClickHouseTask, order.HandleSyncOrdersToClickHouse},
+			workerTaskRegistration{task.RefundExpiredRedEnvelopesTask, redenvelope.HandleRefundExpiredRedEnvelopes},
+			workerTaskRegistration{task.SettlePendingPaymentsTask, order.HandleSettlePendingPayments},
+		)
+	}
+	return registrations
 }

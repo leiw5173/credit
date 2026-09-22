@@ -16,6 +16,8 @@ limitations under the License.
 
 package task
 
+import "github.com/linux-do/credit/internal/config"
+
 const (
 	UpdateUserGamificationScoresTask      = "user:gamification:update_scores_task"
 	UpdateSingleUserGamificationScoreTask = "user:gamification:update_single_score_task"
@@ -116,6 +118,36 @@ var DispatchableTasks = []TaskMeta{
 // GetTaskMeta 根据任务类型获取元数据
 func GetTaskMeta(taskType string) *TaskMeta {
 	for _, t := range DispatchableTasks {
+		if t.Type == taskType {
+			return &t
+		}
+	}
+	return nil
+}
+
+// DispatchableTasksForFeatures returns the task types visible to the admin dispatcher.
+func DispatchableTasksForFeatures(flags config.Features) []TaskMeta {
+	tasks := make([]TaskMeta, 0, len(DispatchableTasks))
+	for _, taskMeta := range DispatchableTasks {
+		switch taskMeta.Type {
+		case TaskTypeCleanupUploads:
+			tasks = append(tasks, taskMeta)
+		case TaskTypeUserGamification:
+			if flags.LegacyGamificationImport {
+				tasks = append(tasks, taskMeta)
+			}
+		default:
+			if flags.LegacyCommerce {
+				tasks = append(tasks, taskMeta)
+			}
+		}
+	}
+	return tasks
+}
+
+// GetTaskMetaForFeatures returns an enabled task definition by type.
+func GetTaskMetaForFeatures(flags config.Features, taskType string) *TaskMeta {
+	for _, t := range DispatchableTasksForFeatures(flags) {
 		if t.Type == taskType {
 			return &t
 		}

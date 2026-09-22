@@ -16,7 +16,10 @@ limitations under the License.
 
 package config
 
-import "time"
+import (
+	"errors"
+	"time"
+)
 
 type configModel struct {
 	App         appConfig         `mapstructure:"app"`
@@ -31,6 +34,7 @@ type configModel struct {
 	OpenAPIRisk openAPIRiskConfig `mapstructure:"openapi_risk"`
 	Otel        otelConfig        `mapstructure:"otel"`
 	S3          s3Config          `mapstructure:"s3"`
+	Features    Features          `mapstructure:"features"`
 }
 
 // appConfig 应用基本配置
@@ -216,4 +220,19 @@ type s3Config struct {
 type localCacheConfig struct {
 	Enabled  bool   `mapstructure:"enabled"`
 	CacheDir string `mapstructure:"cache_dir"`
+}
+
+// Features controls migration-stage functionality. All flags are disabled unless explicitly configured.
+type Features struct {
+	P0                       bool `mapstructure:"p0"`
+	LegacyCommerce           bool `mapstructure:"legacy_commerce"`
+	LegacyGamificationImport bool `mapstructure:"legacy_gamification_import"`
+}
+
+// Validate rejects incompatible migration modes.
+func (f Features) Validate() error {
+	if f.P0 && f.LegacyGamificationImport {
+		return errors.New("P0 and legacy gamification import are mutually exclusive")
+	}
+	return nil
 }

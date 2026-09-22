@@ -48,6 +48,10 @@ func init() {
 		log.Fatalf("[Config] parse config failed: %v\n", err)
 	}
 
+	if err := c.Features.Validate(); err != nil {
+		log.Fatalf("[Config] invalid feature configuration: %v\n", err)
+	}
+
 	// 设置全局配置
 	Config = &c
 

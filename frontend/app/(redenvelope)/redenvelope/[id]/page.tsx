@@ -1,8 +1,11 @@
 import type { Metadata } from "next"
 import { headers } from "next/headers"
+import { notFound } from "next/navigation"
 import { RedEnvelopeClaimPage } from "@/components/common/redenvelope/red-envelope-claim"
+import { legacyCommerceEnabled } from "@/lib/feature-flags"
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
+  if (!await legacyCommerceEnabled()) notFound()
   const { id } = await params
   const requestHeaders = await headers()
   const protocol = requestHeaders.get("x-forwarded-proto") ?? "https"
@@ -27,6 +30,7 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
 }
 
 export default async function RedEnvelopePage({ params }: { params: Promise<{ id: string }> }) {
+  if (!await legacyCommerceEnabled()) notFound()
   const { id } = await params
   return <RedEnvelopeClaimPage id={id} />
 }
