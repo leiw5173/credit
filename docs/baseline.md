@@ -18,13 +18,21 @@ fork as a submodule; it must not silently follow the upstream default branch.
 | Fork and upstream `master` at source verification | `6083983e0b92f4f15bedd9a8ad714848ff07d82b` |
 | License SHA-256 | `f727e693aaf6c0181ea65fa75e233914b459fa8110bfacc72a7a6ad87380fda0` |
 
-`origin` is configured and points only to the authorized fork. Adding the
-local `upstream` remote was denied by the execution environment. Therefore
-`git -C credis ls-remote upstream HEAD refs/heads/main refs/heads/master`
-currently fails with `fatal: 'upstream' does not appear to be a git
-repository`. This is an explicit incomplete gate, not a passing upstream
-check. The fork/upstream commit equality above was independently confirmed
-through the GitHub API.
+`origin` is configured and points only to the authorized fork. On 2026-09-22,
+the approved local `upstream` remote was configured exactly as
+`https://github.com/linux-do/credit`; its required ref probe succeeded:
+
+```text
+$ git -C credis ls-remote upstream HEAD refs/heads/main refs/heads/master
+6083983e0b92f4f15bedd9a8ad714848ff07d82b	HEAD
+c849550731fdc7fd3faa9559ff8d4496e6e910a4	refs/heads/main
+6083983e0b92f4f15bedd9a8ad714848ff07d82b	refs/heads/master
+```
+
+The reviewed application source remains upstream `master`/`HEAD`
+`6083983…`; `main` is a distinct ref and was not incorporated. The earlier
+GitHub API equality evidence is retained as historical source-verification
+context, not as a substitute for this local remote check.
 
 ## Re-evaluated drift from written design baseline
 
@@ -147,11 +155,11 @@ The initial network failure remains part of the baseline evidence; the later
 successful build is the current covering result.
 
 Docker CLI 29.8.0, Docker Compose v5.5.1, and the Docker daemon 29.8.0 are
-available. API, worker, and scheduler runtime checks are **not passed**:
-creating the required private Docker network was denied by the execution
-environment. No PostgreSQL/Redis containers, application processes, health
-requests, task invocations, or task logs were therefore created. The proposed
-fresh local-only images had already been digest-resolved:
+available. The initial runtime attempt was incomplete because private-network
+creation was then denied; it started no dependency containers or roles. That
+historical limitation is superseded by the successful isolated runtime evidence
+in the Round 3 section below. The fresh local-only images used for the completed
+check were the digest-resolved images:
 
 - PostgreSQL 18.6: `postgres@sha256:3725f4e2499eef5134592b3b4ab79a543ed7f8e533b05b5b637af926630f6650`
 - Redis 7.4.11: `redis@sha256:c6eabf748fc7a61dbb5a705c78bcf3d6377b1127a97d0ce965c11c44ba46896f`
@@ -159,14 +167,15 @@ fresh local-only images had already been digest-resolved:
 ## Reproduction status
 
 The reviewed application source is `6083983…`; the parent gitlink intentionally
-points to a later documentation-only fork commit. A fresh clone can reproduce
-that gitlink only after the matching fork documentation branch is available at
-the configured authorized `origin`. Until an authorized publication occurs,
-`git submodule update --init --recursive` in a fresh clone is expected to fail
-for that local-only documentation object; it is not a reproducibility pass.
+points to a later documentation-only Fork commit. Before authorized publication,
+a fresh `git submodule update --init --recursive` was correctly recorded as an
+expected failure because the documentation object was local-only. Round 3
+published `8e9ade79…` and then proved that a genuinely fresh parent clone
+fetched that exact gitlink over the configured Fork HTTPS origin. The detailed
+command output is preserved below.
 
-After the fork commit is available, verify both the actual gitlink and reviewed
-source baseline separately:
+For any later documentation-only gitlink update, verify both the actual gitlink
+and reviewed source baseline separately:
 
 ```bash
 git submodule update --init --recursive
@@ -176,3 +185,94 @@ git -C credis rev-parse origin/master
 # The gitlink is the published documentation commit; origin/master remains the
 # reviewed application source baseline 6083983e0b92f4f15bedd9a8ad714848ff07d82b.
 ```
+
+## Round 3 completion evidence (2026-09-22)
+
+### Published gitlink and genuinely fresh initialization
+
+The previously local-only documentation commit was published only to the
+authorized non-default Fork branch:
+
+```text
+$ git -C credis push origin 8e9ade79a7b471280193e4aeabc8306da00601c9:refs/heads/docs/credis-upstream-baseline
+To https://github.com/leiw5173/credit.git
+ * [new branch] 8e9ade79a7b471280193e4aeabc8306da00601c9 -> docs/credis-upstream-baseline
+```
+
+A new disposable parent clone was then made without a submodule reference or
+local Fork-object reuse. Its normal HTTPS submodule initialization fetched and
+checked out the exact parent gitlink:
+
+```text
+$ git submodule update --init --recursive
+Submodule 'credis' (https://github.com/leiw5173/credit.git) registered for path 'credis'
+Cloning into '<fresh-parent>/credis'...
+Submodule path 'credis': checked out '8e9ade79a7b471280193e4aeabc8306da00601c9'
+
+$ git submodule status
+ 8e9ade79a7b471280193e4aeabc8306da00601c9 credis (remotes/origin/docs/credis-upstream-baseline)
+```
+
+This is fresh-clone reproducibility evidence for the documentation gitlink.
+The parent repository itself was not pushed.
+
+### Current baseline commands
+
+The required immutable Go image is Go 1.26.8. Its raw read-only test command
+was rerun against this checkout and remains a genuine failure because the test
+package opens an absent `config.yaml`:
+
+```text
+$ docker run --rm --mount type=bind,src=<checkout>/credis,dst=/src,readonly -w /src \
+  golang@sha256:a688600ca24f8a4d3ca77f95b0dd40704a9fc787c826660eb7ba0b641b8b175d go test ./...
+...
+2026/09/21 23:52:37 [Config] read config failed: open config.yaml: no such file or directory
+FAIL    github.com/linux-do/credit/internal/apps/redenvelope
+FAIL
+[exit 1]
+```
+
+The current genuine frontend command passed:
+
+```text
+$ (cd credis/frontend && pnpm install --frozen-lockfile && pnpm lint && pnpm build)
+Lockfile is up to date
+> eslint
+> next build
+✓ Compiled successfully
+✓ Generating static pages using 9 workers (27/27)
+[exit 0]
+```
+
+`pnpm` reported ignored build scripts for `core-js`, `sharp`, and
+`unrs-resolver`; Next.js also warned that it inferred a workspace root from an
+unrelated parent lockfile. Neither warning prevented lint or build completion.
+
+### Isolated API, worker, and scheduler runtime
+
+A new local-only Docker network named `credis-task1-net` ran fresh no-volume
+containers from the pinned images recorded above. A disposable `config.yaml`
+used only `credis-task1-postgres`, `credis-task1-redis`, database
+`credis_task1`, placeholder OAuth fields, and disabled S3. The source checkout
+was mounted read-only into each Go 1.26.8 role container; the config was copied
+only into its private working directory.
+
+- API `/api/v1/health` and `/api/v1/ready` returned `{"error_msg":"","data":null}`.
+- Worker and scheduler probe endpoints on their configured ports returned the
+  same success response for both health and readiness checks.
+- The scheduler's temporary once-per-minute, empty-database
+  `dispute:auto_refund_expired` scan was processed by the worker. It recorded
+  `[TaskMiddleware] 任务处理完成 Type: dispute:auto_refund_expired` with 25 ms
+  and 3 ms latencies; the query found zero disputes, so no external or
+  production data was used.
+
+The Docker Desktop host-published IPv4 port reset while the API's `:8000`
+listener was IPv6 wildcard; direct in-container HTTP probes passed. This is a
+host-forwarding observation, not a source change or an application readiness
+failure.
+
+After evidence capture, `credis-task1-api`, `credis-task1-worker`,
+`credis-task1-scheduler`, `credis-task1-postgres`, `credis-task1-redis`, the
+`credis-task1-net` network, and the disposable clone/configuration directories
+were removed. No production service, data, parent branch, or deployment was
+used.
