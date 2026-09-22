@@ -28,6 +28,7 @@ import (
 
 	"github.com/hibiken/asynq"
 	"github.com/linux-do/credit/internal/common"
+	"github.com/linux-do/credit/internal/config"
 	"github.com/linux-do/credit/internal/logger"
 	"github.com/linux-do/credit/internal/task"
 	"github.com/linux-do/credit/internal/task/scheduler"
@@ -202,6 +203,9 @@ func (u *User) CheckActive() error {
 
 // EnqueueBadgeScoreTask 为用户下发积分计算任务
 func (u *User) EnqueueBadgeScoreTask(ctx context.Context, delay time.Duration) error {
+	if !config.Config.Features.LegacyGamificationImport {
+		return nil
+	}
 	payload, _ := json.Marshal(map[string]interface{}{
 		"user_id": u.ID,
 	})
