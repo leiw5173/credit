@@ -92,6 +92,16 @@ func TestLedgerMigration(t *testing.T) {
 		if err := freshConnectionDB(tx).Exec("DELETE FROM ledger_entries").Error; postgresErrorCode(err) != "P0001" {
 			return fmt.Errorf("ledger entry delete error code = %q, want P0001", postgresErrorCode(err))
 		}
+		if err := freshConnectionDB(tx).Exec("TRUNCATE ledger_entries").Error; postgresErrorCode(err) != "P0001" {
+			return fmt.Errorf("ledger entry truncate error code = %q, want P0001", postgresErrorCode(err))
+		}
+		var entryCount int64
+		if err := freshConnectionDB(tx).Table("ledger_entries").Count(&entryCount).Error; err != nil {
+			return err
+		}
+		if entryCount != 1 {
+			return fmt.Errorf("ledger entries after rejected truncate = %d, want 1", entryCount)
+		}
 		if err := freshConnectionDB(tx).Exec(`INSERT INTO ledger_entries
 			(account_id, action, available_delta, source_kind, source_id, idempotency_key, occurred_at)
 			VALUES (?, 'earn', 100, 'test', 'source-2', 'key-1', now())`, accountID).Error; postgresErrorCode(err) != "23505" {
