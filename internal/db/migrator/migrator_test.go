@@ -143,7 +143,7 @@ func TestRuntimeRoleCannotMutateLedger(t *testing.T) {
 	password := fmt.Sprintf("local_%d", stamp)
 	for _, statement := range []string{
 		fmt.Sprintf("CREATE ROLE \"%s\" LOGIN NOINHERIT PASSWORD '%s'", ownerRole, password),
-		fmt.Sprintf("CREATE ROLE \"%s\" LOGIN NOINHERIT PASSWORD '%s'", runtimeRole, password),
+		fmt.Sprintf("CREATE ROLE \"%s\" LOGIN INHERIT PASSWORD '%s'", runtimeRole, password),
 		fmt.Sprintf("CREATE SCHEMA \"%s\" AUTHORIZATION \"%s\"", schema, ownerRole),
 	} {
 		if err := admin.Exec(statement).Error; err != nil {
@@ -158,6 +158,10 @@ func TestRuntimeRoleCannotMutateLedger(t *testing.T) {
 	if err := Migrate(owner, runtimeRole); err != nil {
 		t.Fatal(err)
 	}
+	// A sequence added after the first migration must remain owner-only on rerun.
+	if err := owner.Exec("CREATE SEQUENCE future_owner_only_seq").Error; err != nil {
+		t.Fatal(err)
+	}
 	if err := Migrate(owner, runtimeRole); err != nil {
 		t.Fatal(err)
 	}
@@ -165,8 +169,29 @@ func TestRuntimeRoleCannotMutateLedger(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	var inherits bool
+	if err := runtime.Raw("SELECT rolinherit FROM pg_roles WHERE rolname = current_user").Scan(&inherits).Error; err != nil || !inherits {
+		t.Fatalf("expected default INHERIT login, inherits = %t, err = %v", inherits, err)
+	}
 	if err := VerifyRuntime(runtime); err != nil {
-		t.Fatal(err)
+		t.Fatalf("default INHERIT login without owner membership rejected: %v", err)
+	}
+	for _, sequence := range []string{"ledger_accounts_id_seq", "future_owner_only_seq"} {
+		for _, privilege := range []string{"USAGE", "SELECT"} {
+			var granted bool
+			if err := runtime.Raw("SELECT has_sequence_privilege(current_user, ?, ?)", sequence, privilege).Scan(&granted).Error; err != nil || granted {
+				t.Fatalf("runtime %s on %s = %t, err = %v", privilege, sequence, granted, err)
+			}
+		}
+		if err := runtime.Exec("SELECT nextval('" + sequence + "')").Error; postgresErrorCode(err) != "42501" {
+			t.Fatalf("runtime nextval(%s) code = %q, want 42501", sequence, postgresErrorCode(err))
+		}
+	}
+	for _, sequence := range []string{"ledger_entries_id_seq", "audit_logs_id_seq", "outbox_events_id_seq", "users_id_seq"} {
+		var granted bool
+		if err := runtime.Raw("SELECT has_sequence_privilege(current_user, ?, 'USAGE')", sequence).Scan(&granted).Error; err != nil || !granted {
+			t.Fatalf("runtime USAGE on %s = %t, err = %v", sequence, granted, err)
+		}
 	}
 	assertVerifyFails := func(label string) {
 		t.Helper()
@@ -193,6 +218,18 @@ func TestRuntimeRoleCannotMutateLedger(t *testing.T) {
 	assertVerifyFails("disabled immutable trigger")
 	if err := owner.Exec("ALTER TABLE ledger_entries ENABLE TRIGGER ledger_entries_immutable").Error; err != nil {
 		t.Fatal(err)
+	}
+	for _, trigger := range []string{"ledger_entries_immutable", "ledger_entries_no_truncate"} {
+		if err := owner.Exec("ALTER TABLE ledger_entries ENABLE REPLICA TRIGGER " + trigger).Error; err != nil {
+			t.Fatal(err)
+		}
+		assertVerifyFails("REPLICA-only " + trigger)
+		if err := owner.Exec("ALTER TABLE ledger_entries ENABLE TRIGGER " + trigger).Error; err != nil {
+			t.Fatal(err)
+		}
+		if err := VerifyRuntime(runtime); err != nil {
+			t.Fatalf("restored origin trigger %s rejected: %v", trigger, err)
+		}
 	}
 	if err := owner.Exec("DROP TRIGGER ledger_entries_immutable ON ledger_entries").Error; err != nil {
 		t.Fatal(err)
@@ -271,6 +308,12 @@ func TestRuntimeRoleCannotMutateLedger(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := runtime.Exec(`INSERT INTO ledger_entries (account_id, action, available_delta, source_kind, source_id, idempotency_key, occurred_at) VALUES (?, 'earn', 1, 'test', 'runtime', 'runtime-key', now())`, accountID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := runtime.Exec("INSERT INTO audit_logs (actor_id, reason) VALUES ('runtime-test', 'allowed')").Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := runtime.Exec(`INSERT INTO outbox_events (operation_id, target, target_key, payload) VALUES ('runtime-sequence-test', 'test', 'key', '{}'::jsonb)`).Error; err != nil {
 		t.Fatal(err)
 	}
 	for _, statement := range []string{"UPDATE ledger_entries SET available_delta = 2", "DELETE FROM ledger_entries", "TRUNCATE ledger_entries", "ALTER TABLE ledger_entries DISABLE TRIGGER ledger_entries_immutable", "DROP TRIGGER ledger_entries_immutable ON ledger_entries"} {

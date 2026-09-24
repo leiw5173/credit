@@ -41,7 +41,7 @@ func GrantRuntimePrivileges(owner *gorm.DB, role string) error {
 		"GRANT SELECT, INSERT ON outbox_events, audit_logs TO " + quoted,
 		"GRANT USAGE, SELECT ON SEQUENCE outbox_events_id_seq, audit_logs_id_seq TO " + quoted,
 		"GRANT SELECT, INSERT, UPDATE, DELETE ON " + legacyTables + " TO " + quoted,
-		"GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA " + quotedSchema + " TO " + quoted,
+		"GRANT USAGE, SELECT ON SEQUENCE users_id_seq, user_pay_configs_id_seq, merchant_api_keys_id_seq, merchant_payment_links_id_seq, orders_id_seq, order_transfers_id_seq, disputes_id_seq, red_envelopes_id_seq, red_envelope_claims_id_seq, uploads_id_seq TO " + quoted,
 	}
 	for _, statement := range statements {
 		if err := owner.Exec(statement).Error; err != nil {
@@ -68,14 +68,14 @@ func VerifyRuntime(runtime *gorm.DB) error {
 		return fmt.Errorf("required ledger objects unavailable")
 	}
 	var guards int64
-	if err := runtime.Raw("SELECT count(*) FROM pg_trigger WHERE tgrelid = 'ledger_entries'::regclass AND tgenabled <> 'D' AND tgname IN ('ledger_entries_immutable','ledger_entries_no_truncate')").Scan(&guards).Error; err != nil || guards != 2 {
+	if err := runtime.Raw("SELECT count(*) FROM pg_trigger WHERE tgrelid = 'ledger_entries'::regclass AND tgenabled IN ('O', 'A') AND tgname IN ('ledger_entries_immutable','ledger_entries_no_truncate')").Scan(&guards).Error; err != nil || guards != 2 {
 		return fmt.Errorf("ledger immutability guards unavailable")
 	}
-	var superuser, inherit, member bool
-	if err := runtime.Raw("SELECT r.rolsuper, r.rolinherit, pg_has_role(current_user, c.relowner, 'MEMBER') FROM pg_roles r CROSS JOIN pg_class c WHERE r.rolname = current_user AND c.oid = 'ledger_entries'::regclass").Row().Scan(&superuser, &inherit, &member); err != nil {
+	var superuser, member bool
+	if err := runtime.Raw("SELECT r.rolsuper, pg_has_role(current_user, c.relowner, 'MEMBER') FROM pg_roles r CROSS JOIN pg_class c WHERE r.rolname = current_user AND c.oid = 'ledger_entries'::regclass").Row().Scan(&superuser, &member); err != nil {
 		return fmt.Errorf("check runtime role: %w", err)
 	}
-	if superuser || inherit || member {
+	if superuser || member {
 		return fmt.Errorf("runtime role can escalate to ledger owner")
 	}
 	var selectOK, insertOK, updateOK, deleteOK, truncateOK bool
