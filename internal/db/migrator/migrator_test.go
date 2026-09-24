@@ -252,6 +252,20 @@ func TestRuntimeRoleCannotMutateLedger(t *testing.T) {
 	if err := runtime.Exec("DELETE FROM system_configs WHERE key = 'runtime-test'").Error; err != nil {
 		t.Fatal(err)
 	}
+	username := fmt.Sprintf("runtime-user-%d", stamp)
+	if err := runtime.Exec("INSERT INTO users (username, sign_key) VALUES (?, ?)", username, "runtime-sign-key").Error; err != nil {
+		t.Fatal(err)
+	}
+	var userCount int64
+	if err := runtime.Table("users").Where("username = ?", username).Count(&userCount).Error; err != nil || userCount != 1 {
+		t.Fatalf("runtime user select count = %d, err = %v", userCount, err)
+	}
+	if err := runtime.Exec("UPDATE users SET nickname = ? WHERE username = ?", "runtime user", username).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := runtime.Exec("DELETE FROM users WHERE username = ?", username).Error; err != nil {
+		t.Fatal(err)
+	}
 	var accountID int64
 	if err := owner.Raw("INSERT INTO ledger_accounts (forum_user_id) VALUES (2001) RETURNING id").Scan(&accountID).Error; err != nil {
 		t.Fatal(err)
