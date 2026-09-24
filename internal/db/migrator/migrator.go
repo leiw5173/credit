@@ -32,6 +32,10 @@ func Migrate() {
 		return
 	}
 
+	if err := ApplyVersioned(db.DB(context.Background())); err != nil {
+		log.Fatalf("[PostgreSQL] versioned migration failed: %v\n", err)
+	}
+
 	if err := db.DB(context.Background()).AutoMigrate(
 		&model.User{},
 		&model.UserPayConfig{},
