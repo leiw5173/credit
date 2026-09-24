@@ -22,6 +22,7 @@ import (
 	"net"
 	"net/url"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/linux-do/credit/internal/config"
@@ -33,10 +34,11 @@ import (
 )
 
 var (
-	db *gorm.DB
+	db     *gorm.DB
+	dbOnce sync.Once
 )
 
-func init() {
+func initializePostgres() {
 	if !config.Config.Database.Enabled {
 		log.Println("[PostgreSQL] is disabled, skipping initialization")
 		return
@@ -173,5 +175,6 @@ func buildDSN(host string, port int, username, password string) string {
 }
 
 func DB(ctx context.Context) *gorm.DB {
+	dbOnce.Do(initializePostgres)
 	return db.WithContext(ctx)
 }

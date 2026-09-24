@@ -3,6 +3,7 @@ package migrator
 import (
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"strings"
 	"testing"
@@ -110,5 +111,77 @@ func TestLedgerMigration(t *testing.T) {
 		return nil
 	}); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func roleDSN(t *testing.T, dsn, role, password, schema string) string {
+	t.Helper()
+	u, err := url.Parse(dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	u.User = url.UserPassword(role, password)
+	q := u.Query()
+	q.Set("search_path", schema)
+	u.RawQuery = q.Encode()
+	return u.String()
+}
+
+func TestRuntimeRoleCannotMutateLedger(t *testing.T) {
+	dsn := os.Getenv("TEST_DATABASE_URL")
+	if dsn == "" {
+		t.Skip("requires isolated PostgreSQL")
+	}
+	admin, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stamp := time.Now().UnixNano()
+	ownerRole := fmt.Sprintf("ledger_owner_%d", stamp)
+	runtimeRole := fmt.Sprintf("ledger_runtime_%d", stamp)
+	schema := fmt.Sprintf("ledger_roles_%d", stamp)
+	password := fmt.Sprintf("local_%d", stamp)
+	for _, statement := range []string{
+		fmt.Sprintf("CREATE ROLE \"%s\" LOGIN NOINHERIT PASSWORD '%s'", ownerRole, password),
+		fmt.Sprintf("CREATE ROLE \"%s\" LOGIN NOINHERIT PASSWORD '%s'", runtimeRole, password),
+		fmt.Sprintf("CREATE SCHEMA \"%s\" AUTHORIZATION \"%s\"", schema, ownerRole),
+	} {
+		if err := admin.Exec(statement).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	defer admin.Exec(fmt.Sprintf("DROP SCHEMA \"%s\" CASCADE", schema))
+	owner, err := gorm.Open(postgres.Open(roleDSN(t, dsn, ownerRole, password, schema)), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := Migrate(owner, runtimeRole); err != nil {
+		t.Fatal(err)
+	}
+	if err := Migrate(owner, runtimeRole); err != nil {
+		t.Fatal(err)
+	}
+	runtime, err := gorm.Open(postgres.Open(roleDSN(t, dsn, runtimeRole, password, schema)), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := VerifyRuntime(runtime); err != nil {
+		t.Fatal(err)
+	}
+	var accountID int64
+	if err := owner.Raw("INSERT INTO ledger_accounts (forum_user_id) VALUES (2001) RETURNING id").Scan(&accountID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := runtime.Exec(`INSERT INTO ledger_entries (account_id, action, available_delta, source_kind, source_id, idempotency_key, occurred_at) VALUES (?, 'earn', 1, 'test', 'runtime', 'runtime-key', now())`, accountID).Error; err != nil {
+		t.Fatal(err)
+	}
+	for _, statement := range []string{"UPDATE ledger_entries SET available_delta = 2", "DELETE FROM ledger_entries", "TRUNCATE ledger_entries", "ALTER TABLE ledger_entries DISABLE TRIGGER ledger_entries_immutable", "DROP TRIGGER ledger_entries_immutable ON ledger_entries"} {
+		if err := runtime.Exec(statement).Error; err == nil {
+			t.Fatalf("runtime mutation succeeded: %s", statement)
+		}
+	}
+	var count int64
+	if err := runtime.Table("ledger_entries").Count(&count).Error; err != nil || count != 1 {
+		t.Fatalf("runtime ledger rows = %d, err = %v", count, err)
 	}
 }

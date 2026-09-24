@@ -17,37 +17,32 @@ limitations under the License.
 package cmd
 
 import (
+	"context"
+	"fmt"
 	"log"
 
+	"github.com/linux-do/credit/internal/config"
+	"github.com/linux-do/credit/internal/db"
 	"github.com/linux-do/credit/internal/db/migrator"
 	"github.com/spf13/cobra"
 )
 
 var rootCmd = &cobra.Command{
 	Use: "linux-do-credit",
-	PreRun: func(cmd *cobra.Command, args []string) {
-		migrator.Migrate()
-	},
-	Run: func(cmd *cobra.Command, args []string) {
-		if len(args) == 0 {
-			log.Fatalf("[CMD] please provide a command\n")
+	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+		if cmd == migrateCmd {
+			return nil
 		}
-		appMode := args[0]
-		switch appMode {
-		case "api":
-			apiCmd.Run(apiCmd, args)
-		case "scheduler":
-			schedulerCmd.Run(schedulerCmd, args)
-		case "worker":
-			workerCmd.Run(workerCmd, args)
-		default:
-			log.Fatal("[CMD] unknown app mode\n")
+		if !config.Config.Database.Enabled {
+			return fmt.Errorf("runtime database must be enabled")
 		}
+		return migrator.VerifyRuntime(db.DB(context.Background()))
 	},
 }
 
 func init() {
 	rootCmd.CompletionOptions.DisableDefaultCmd = true
+	rootCmd.AddCommand(apiCmd, workerCmd, schedulerCmd, migrateCmd)
 }
 
 func Execute() {

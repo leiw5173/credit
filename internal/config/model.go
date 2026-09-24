@@ -77,7 +77,7 @@ type databaseConfig struct {
 	Host                   string                  `mapstructure:"host"`
 	Port                   int                     `mapstructure:"port"`
 	Username               string                  `mapstructure:"username"`
-	Password               string                  `mapstructure:"password"`
+	Password               string                  `mapstructure:"password" json:"-"`
 	Database               string                  `mapstructure:"database"`
 	MaxIdleConn            int                     `mapstructure:"max_idle_conn"`
 	MaxOpenConn            int                     `mapstructure:"max_open_conn"`
@@ -100,7 +100,7 @@ type databaseReplicaConfig struct {
 	Host     string `mapstructure:"host"`
 	Port     int    `mapstructure:"port"`
 	Username string `mapstructure:"username"`
-	Password string `mapstructure:"password"`
+	Password string `mapstructure:"password" json:"-"`
 }
 
 // clickhouse 配置

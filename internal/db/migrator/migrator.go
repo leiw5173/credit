@@ -17,26 +17,20 @@ limitations under the License.
 package migrator
 
 import (
-	"context"
+	"fmt"
 	"log"
 
 	"github.com/linux-do/credit/internal/model"
-
-	"github.com/linux-do/credit/internal/config"
-	"github.com/linux-do/credit/internal/db"
 	"github.com/shopspring/decimal"
+	"gorm.io/gorm"
 )
 
-func Migrate() {
-	if !config.Config.Database.Enabled {
-		return
+// Migrate applies all DDL using the dedicated migration-owner connection.
+func Migrate(owner *gorm.DB, runtimeRole string) error {
+	if err := ApplyVersioned(owner); err != nil {
+		return fmt.Errorf("versioned migration: %w", err)
 	}
-
-	if err := ApplyVersioned(db.DB(context.Background())); err != nil {
-		log.Fatalf("[PostgreSQL] versioned migration failed: %v\n", err)
-	}
-
-	if err := db.DB(context.Background()).AutoMigrate(
+	if err := owner.AutoMigrate(
 		&model.User{},
 		&model.UserPayConfig{},
 		&model.MerchantAPIKey{},
@@ -49,20 +43,20 @@ func Migrate() {
 		&model.RedEnvelopeClaim{},
 		&model.Upload{},
 	); err != nil {
-		log.Fatalf("[PostgreSQL] auto migrate failed: %v\n", err)
+		return fmt.Errorf("legacy auto migrate: %w", err)
 	}
-	log.Printf("[PostgreSQL] auto migrate success\n")
-
-	// 初始化系统配置数据
-	initSystemConfigs()
-
-	// 初始化用户支付配置数据
-	initUserPayConfigs()
+	initSystemConfigs(owner)
+	initUserPayConfigs(owner)
+	if err := GrantRuntimePrivileges(owner, runtimeRole); err != nil {
+		return fmt.Errorf("grant runtime privileges: %w", err)
+	}
+	log.Printf("[PostgreSQL] migration success")
+	return nil
 }
 
 // initSystemConfigs 初始化系统配置数据
-func initSystemConfigs() {
-	tx := db.DB(context.Background())
+func initSystemConfigs(owner *gorm.DB) {
+	tx := owner
 
 	var count int64
 	if err := tx.Model(&model.SystemConfig{}).Count(&count).Error; err != nil {
@@ -165,8 +159,8 @@ func int64Ptr(v int64) *int64 {
 }
 
 // initUserPayConfigs 初始化用户支付配置数据
-func initUserPayConfigs() {
-	tx := db.DB(context.Background())
+func initUserPayConfigs(owner *gorm.DB) {
+	tx := owner
 
 	var count int64
 	if err := tx.Model(&model.UserPayConfig{}).Count(&count).Error; err != nil {
