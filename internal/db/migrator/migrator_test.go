@@ -168,6 +168,15 @@ func TestRuntimeRoleCannotMutateLedger(t *testing.T) {
 	if err := VerifyRuntime(runtime); err != nil {
 		t.Fatal(err)
 	}
+	if err := owner.Exec("INSERT INTO schema_migrations (version, name) VALUES (2, '0002_test.up.sql')").Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := VerifyRuntime(runtime); err == nil {
+		t.Fatal("runtime accepted stale schema migration set")
+	}
+	if err := owner.Exec("DELETE FROM schema_migrations WHERE version = 2").Error; err != nil {
+		t.Fatal(err)
+	}
 	var accountID int64
 	if err := owner.Raw("INSERT INTO ledger_accounts (forum_user_id) VALUES (2001) RETURNING id").Scan(&accountID).Error; err != nil {
 		t.Fatal(err)

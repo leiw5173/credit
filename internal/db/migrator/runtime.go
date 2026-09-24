@@ -50,12 +50,15 @@ func GrantRuntimePrivileges(owner *gorm.DB, role string) error {
 
 // VerifyRuntime fails closed unless the runtime login sees the required schema and least privileges.
 func VerifyRuntime(runtime *gorm.DB) error {
-	var count int64
-	if err := runtime.Table("schema_migrations").Where("version = ?", 1).Count(&count).Error; err != nil || count != 1 {
-		if err != nil {
-			return fmt.Errorf("schema migrations unavailable: %w", err)
-		}
-		return fmt.Errorf("required schema migration 0001 is not current")
+	var required, total int64
+	if err := runtime.Table("schema_migrations").Where("version = ?", 1).Count(&required).Error; err != nil {
+		return fmt.Errorf("schema migrations unavailable: %w", err)
+	}
+	if err := runtime.Table("schema_migrations").Count(&total).Error; err != nil {
+		return fmt.Errorf("schema migrations unavailable: %w", err)
+	}
+	if required != 1 || total != 1 {
+		return fmt.Errorf("required schema migration set is not current")
 	}
 	var allowed, forbidden bool
 	if err := runtime.Raw("SELECT has_table_privilege(current_user, 'ledger_entries', 'SELECT, INSERT'), has_table_privilege(current_user, 'ledger_entries', 'UPDATE, DELETE, TRUNCATE')").Row().Scan(&allowed, &forbidden); err != nil {
