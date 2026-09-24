@@ -168,13 +168,88 @@ func TestRuntimeRoleCannotMutateLedger(t *testing.T) {
 	if err := VerifyRuntime(runtime); err != nil {
 		t.Fatal(err)
 	}
-	if err := owner.Exec("INSERT INTO schema_migrations (version, name) VALUES (2, '0002_test.up.sql')").Error; err != nil {
+	assertVerifyFails := func(label string) {
+		t.Helper()
+		if err := VerifyRuntime(runtime); err == nil {
+			t.Fatalf("runtime accepted %s", label)
+		}
+	}
+	if err := admin.Exec(fmt.Sprintf("GRANT \"%s\" TO \"%s\"", ownerRole, runtimeRole)).Error; err != nil {
 		t.Fatal(err)
 	}
-	if err := VerifyRuntime(runtime); err == nil {
-		t.Fatal("runtime accepted stale schema migration set")
+	assertVerifyFails("migration-owner membership")
+	if err := runtime.Exec(fmt.Sprintf("SET ROLE \"%s\"", ownerRole)).Error; err != nil {
+		t.Fatal(err)
 	}
-	if err := owner.Exec("DELETE FROM schema_migrations WHERE version = 2").Error; err != nil {
+	if err := runtime.Exec("RESET ROLE").Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := admin.Exec(fmt.Sprintf("REVOKE \"%s\" FROM \"%s\"", ownerRole, runtimeRole)).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := owner.Exec("ALTER TABLE ledger_entries DISABLE TRIGGER ledger_entries_immutable").Error; err != nil {
+		t.Fatal(err)
+	}
+	assertVerifyFails("disabled immutable trigger")
+	if err := owner.Exec("ALTER TABLE ledger_entries ENABLE TRIGGER ledger_entries_immutable").Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := owner.Exec("DROP TRIGGER ledger_entries_immutable ON ledger_entries").Error; err != nil {
+		t.Fatal(err)
+	}
+	assertVerifyFails("missing immutable trigger")
+	if err := owner.Exec("CREATE TRIGGER ledger_entries_immutable BEFORE UPDATE OR DELETE ON ledger_entries FOR EACH ROW EXECUTE FUNCTION prevent_ledger_entry_mutation()").Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := owner.Exec("ALTER TABLE audit_logs RENAME TO audit_logs_missing").Error; err != nil {
+		t.Fatal(err)
+	}
+	assertVerifyFails("missing audit_logs")
+	if err := owner.Exec("ALTER TABLE audit_logs_missing RENAME TO audit_logs").Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := owner.Exec("ALTER TABLE outbox_events RENAME TO outbox_events_missing").Error; err != nil {
+		t.Fatal(err)
+	}
+	assertVerifyFails("missing outbox_events")
+	if err := owner.Exec("ALTER TABLE outbox_events_missing RENAME TO outbox_events").Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := owner.Exec("UPDATE schema_migrations SET name = 'wrong.sql' WHERE version = 1").Error; err != nil {
+		t.Fatal(err)
+	}
+	assertVerifyFails("wrong migration name")
+	if err := owner.Exec("UPDATE schema_migrations SET name = '0001_credis_ledger.up.sql' WHERE version = 1").Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := owner.Exec(fmt.Sprintf("REVOKE INSERT ON ledger_entries FROM \"%s\"", runtimeRole)).Error; err != nil {
+		t.Fatal(err)
+	}
+	assertVerifyFails("SELECT-only ledger privilege")
+	if err := owner.Exec(fmt.Sprintf("GRANT INSERT ON ledger_entries TO \"%s\"", runtimeRole)).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := owner.Exec(fmt.Sprintf("REVOKE SELECT ON ledger_entries FROM \"%s\"", runtimeRole)).Error; err != nil {
+		t.Fatal(err)
+	}
+	assertVerifyFails("INSERT-only ledger privilege")
+	if err := owner.Exec(fmt.Sprintf("GRANT SELECT ON ledger_entries TO \"%s\"", runtimeRole)).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := VerifyRuntime(runtime); err != nil {
+		t.Fatal(err)
+	}
+	var systemConfigCount int64
+	if err := runtime.Table("system_configs").Count(&systemConfigCount).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := runtime.Exec("INSERT INTO system_configs (key, value, description) VALUES ('runtime-test', '1', 'runtime write')").Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := runtime.Exec("UPDATE system_configs SET value = '2' WHERE key = 'runtime-test'").Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := runtime.Exec("DELETE FROM system_configs WHERE key = 'runtime-test'").Error; err != nil {
 		t.Fatal(err)
 	}
 	var accountID int64
